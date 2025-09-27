@@ -142,7 +142,12 @@ fn add_submodule(home: String, link: String, config_path: String) {
   use _ <- result.try(
     shellout.command(
       run: "git",
-      with: ["submodule", "add", link, filepath.join(home, spec.dotfiles_path)],
+      with: [
+        "submodule",
+        "add",
+        link,
+        spec.dotfiles_path |> drop_first_dir,
+      ],
       in: filepath.join(home, dotfiles),
       opt: [],
     )
@@ -151,6 +156,14 @@ fn add_submodule(home: String, link: String, config_path: String) {
 
   use _ <- result.try(make_symlink_from_spec(spec, home))
   persist_spec(spec, home)
+}
+
+/// drops the first directory from a path
+///
+fn drop_first_dir(path: String) {
+  filepath.split(path)
+  |> list.drop(1)
+  |> list.fold("", filepath.join)
 }
 
 fn show_help() {
