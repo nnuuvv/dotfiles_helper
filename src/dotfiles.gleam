@@ -23,6 +23,8 @@ type InternalError {
   FailedToCloneRepo(#(Int, String))
   FailedToInitRepo(#(Int, String))
   FailedToCreateDir(path: String, error: simplifile.FileError)
+  InsufficientPermissions(path: String, error: simplifile.FileError)
+  FileWasSymlink(String)
 }
 
 fn describe_error(error: InternalError) {
@@ -55,7 +57,14 @@ fn describe_error(error: InternalError) {
       <> path
       <> " "
       <> simplifile.describe_error(inner)
+    InsufficientPermissions(path, inner) ->
+      string.inspect(error)
+      <> " "
+      <> path
+      <> " "
+      <> simplifile.describe_error(inner)
     FailedToInitRepo(_) -> string.inspect(error)
+    FileWasSymlink(path) -> path <> " is a symlink. It will be skipped."
   }
 }
 
@@ -196,18 +205,25 @@ fn add_many(home: String, configs: List(String)) {
 /// Returns the original spec
 ///
 fn move_config_to_dotfiles(spec: Spec, home) {
-  // make sure the dotfiles path exists
-  let _ =
-    simplifile.create_directory_all(
-      filepath.directory_name(filepath.join(home, spec.dotfiles_path)),
-    )
+  let full_target_path = filepath.join(home, spec.target_path)
+  let full_dotfiles_path = filepath.join(home, spec.dotfiles_path)
 
-  simplifile.rename(
-    filepath.join(home, spec.target_path),
-    filepath.join(home, spec.dotfiles_path),
-  )
-  |> result.map_error(FailedToCopy(filepath.join(home, spec.dotfiles_path), _))
-  |> result.replace(spec)
+  case simplifile.is_symlink(full_target_path) {
+    Error(err) -> InsufficientPermissions(full_target_path, err) |> Error
+    Ok(True) -> FileWasSymlink(full_target_path) |> Error
+    Ok(False) -> {
+      // make sure the dotfiles path exists
+      let _ =
+        simplifile.create_directory_all(filepath.directory_name(
+          full_target_path,
+        ))
+
+      // move the original config(target) to the new dotfiles path
+      simplifile.rename(full_target_path, full_dotfiles_path)
+      |> result.map_error(FailedToCopy(full_target_path, _))
+      |> result.replace(spec)
+    }
+  }
 }
 
 /// loads specs from spec.json and tries to create the symlinks based on it
