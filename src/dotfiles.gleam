@@ -222,14 +222,6 @@ fn to_dotfiles_path(path) {
   |> filepath.join(dotfiles, _)
 }
 
-fn to_original_path(path) {
-  path
-  |> string.replace(dotfiles <> "/", "")
-  |> string.split(on: "/")
-  |> list.map(string.replace(_, "dot_", "."))
-  |> string.join("/")
-}
-
 // symlink ----------------------------------------------------------------------
 
 /// creates a symlink based on a spec
