@@ -8,7 +8,8 @@
 - add <path> | add an existing dot file to the ~/dotfiles repo and set up the symlink
 - add submodule <link> <path> | like add, but it will be added as a submodule 
 
-TODO: builds and releases
+TODO: 
+- builds and releases
 
 ---
 #### Usage examples

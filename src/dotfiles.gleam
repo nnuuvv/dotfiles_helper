@@ -196,6 +196,12 @@ fn add_many(home: String, configs: List(String)) {
 /// Returns the original spec
 ///
 fn move_config_to_dotfiles(spec: Spec, home) {
+  // make sure the dotfiles path exists
+  let _ =
+    simplifile.create_directory_all(
+      filepath.directory_name(filepath.join(home, spec.dotfiles_path)),
+    )
+
   simplifile.rename(
     filepath.join(home, spec.target_path),
     filepath.join(home, spec.dotfiles_path),
@@ -274,8 +280,8 @@ fn make_symlink(
       "--symbolic",
       "--no-dereference",
       "--force",
-      dotfiles_path |> echo,
-      target_path |> echo,
+      dotfiles_path,
+      target_path,
     ],
     in: ".",
     opt: [],
