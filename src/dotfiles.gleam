@@ -293,9 +293,12 @@ fn make_symlink(
   shellout.command(
     run: "ln",
     with: [
-      "--symbolic",
-      "--no-dereference",
-      "--force",
+      // symbolic
+      "-s",
+      // no-dereference
+      "-n",
+      // force
+      "-f",
       dotfiles_path,
       target_path,
     ],
