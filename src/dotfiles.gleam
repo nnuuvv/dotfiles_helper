@@ -13,6 +13,57 @@ import simplifile
 /// location, relative to $HOME, of the dotfiles repo
 const dotfiles = "dotfiles"
 
+pub fn main() -> Nil {
+  let program_args = argv.load().arguments
+  let assert Ok(home_dir) = envoy.get("HOME") as "$HOME not defined"
+
+  case program_args {
+    ["help"] -> show_help()
+    ["new"] -> {
+      let _ =
+        setup_new(home_dir)
+        |> result.map_error(describe_error)
+        |> result.map_error(io.println_error)
+
+      Nil
+    }
+
+    ["init", link] -> {
+      let _ =
+        init_from_link(link, home_dir)
+        |> result.map_error(describe_error)
+        |> result.map_error(io.println_error)
+
+      Nil
+    }
+    ["init"] -> {
+      let _ =
+        update_symlinks(home_dir)
+        |> result.map_error(describe_error)
+        |> result.map_error(io.println_error)
+
+      Nil
+    }
+    ["add", "submodule", link, path] -> {
+      let _ =
+        add_submodule(home_dir, link, path)
+        |> result.map_error(describe_error)
+        |> result.map_error(io.println_error)
+      Nil
+    }
+    ["add", ..rest] -> {
+      let _ =
+        add_many(home_dir, rest)
+        |> result.map_error(describe_error)
+        |> result.map_error(io.println_error)
+      Nil
+    }
+    _ -> show_help()
+  }
+}
+
+// errors -----------------------------------------------------------------------
+
 type InternalError {
   FailedToCopy(path: String, error: simplifile.FileError)
   FailedToRead(path: String, error: simplifile.FileError)
@@ -68,54 +119,11 @@ fn describe_error(error: InternalError) {
   }
 }
 
-pub fn main() -> Nil {
-  let program_args = argv.load().arguments
-  let assert Ok(home_dir) = envoy.get("HOME") as "$HOME not defined"
+// ------------------------------------------------------------------------------
+// actions 
+// ------------------------------------------------------------------------------
 
-  case program_args {
-    ["help"] -> show_help()
-    ["new"] -> {
-      let _ =
-        setup_new(home_dir)
-        |> result.map_error(describe_error)
-        |> result.map_error(io.println_error)
-
-      Nil
-    }
-
-    ["init", link] -> {
-      let _ =
-        init_from_link(link, home_dir)
-        |> result.map_error(describe_error)
-        |> result.map_error(io.println_error)
-
-      Nil
-    }
-    ["init"] -> {
-      let _ =
-        update_symlinks(home_dir)
-        |> result.map_error(describe_error)
-        |> result.map_error(io.println_error)
-
-      Nil
-    }
-    ["add", "submodule", link, path] -> {
-      let _ =
-        add_submodule(home_dir, link, path)
-        |> result.map_error(describe_error)
-        |> result.map_error(io.println_error)
-      Nil
-    }
-    ["add", ..rest] -> {
-      let _ =
-        add_many(home_dir, rest)
-        |> result.map_error(describe_error)
-        |> result.map_error(io.println_error)
-      Nil
-    }
-    _ -> show_help()
-  }
-}
+// new 
 
 fn setup_new(home_dir: String) {
   let path = filepath.join(home_dir, dotfiles)
@@ -127,6 +135,8 @@ fn setup_new(home_dir: String) {
   shellout.command(run: "git", with: ["init"], in: path, opt: [])
   |> result.map_error(FailedToInitRepo)
 }
+
+// init <link> ------------------------------------------------------------------
 
 /// git clone's the provided link and then runs normal setup
 ///
@@ -145,6 +155,24 @@ fn clone_repo(link: String, home: String) {
   |> result.map_error(FailedToCloneRepo)
 }
 
+// init -------------------------------------------------------------------------
+
+/// loads specs from spec.json and tries to create the symlinks based on it
+///
+fn update_symlinks(home home: String) -> Result(List(String), InternalError) {
+  use specs <- result.try(
+    spec_path(home)
+    |> load_specs,
+  )
+
+  specs
+  |> list.map(make_symlink_from_spec(_, home))
+  |> list.map(result.map(_, string.inspect))
+  |> result.all()
+}
+
+// add submodule <link> ---------------------------------------------------------
+
 fn add_submodule(home: String, link: String, config_path: String) {
   use spec <- result.try(spec_from_config_path(config_path))
 
@@ -155,6 +183,7 @@ fn add_submodule(home: String, link: String, config_path: String) {
         "submodule",
         "add",
         link,
+        // drop `dotfiles` from `dotfiles/dot_config/nvim`
         spec.dotfiles_path |> drop_first_dir,
       ],
       in: filepath.join(home, dotfiles),
@@ -226,30 +255,6 @@ fn move_config_to_dotfiles(spec: Spec, home) {
   }
 }
 
-/// loads specs from spec.json and tries to create the symlinks based on it
-///
-fn update_symlinks(home home: String) -> Result(List(String), InternalError) {
-  use specs <- result.try(
-    spec_path(home)
-    |> load_specs,
-  )
-
-  specs
-  |> list.map(make_symlink_from_spec(_, home))
-  |> list.map(result.map(_, string.inspect))
-  |> result.all()
-}
-
-// path manipulation ------------------------------------------------------------
-
-fn drop_home(from) {
-  from
-  |> filepath.split()
-  // drop `/`, `home` and `<user>`
-  |> list.drop(3)
-  |> list.fold("", filepath.join)
-}
-
 fn to_dotfiles_path(path) {
   string.split(path, on: "/")
   |> list.map(string.replace(_, ".", "dot_"))
@@ -312,7 +317,7 @@ fn make_symlink(
 
 type Spec {
   /// both without the /home/<user> for portability
-  /// `dotfiles_path` <- the path in `~/dotfiles/dot_config/nvim/` 
+  /// `dotfiles_path` <- the path in `~/dotfiles/dot_config/nvim/` | does start with 'dotfiles'
   /// `target_path` <- the path the config belongs in i.e. `~/.config/nvim`
   ///
   Spec(dotfiles_path: String, target_path: String)
@@ -321,10 +326,22 @@ type Spec {
 fn spec_from_config_path(path: String) -> Result(Spec, InternalError) {
   use path <- result.try(case path {
     "/home" <> _ -> drop_home(path) |> Ok
+    "/root/" <> path -> path |> Ok
     _ -> Error(FileNotInHomeDirectory(path))
   })
 
   Spec(to_dotfiles_path(path), path) |> Ok
+}
+
+/// drops '/', 'home' and '<user>' from supplied path
+/// uses filepath.join to reassemble the path
+///
+fn drop_home(from) {
+  from
+  |> filepath.split()
+  // drop `/`, `home` and `<user>`
+  |> list.drop(3)
+  |> list.fold("", filepath.join)
 }
 
 /// gets path of spec.json using `/home/<user>`
